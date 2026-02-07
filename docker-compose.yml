@@ -1,0 +1,13 @@
+services:
+  tracker:
+    build: .
+    container_name: amazon-item-tracker
+    volumes:
+      - ./config:/app/config
+    restart: unless-stopped
+    # Use dumb-init if needed to signal correct exit
+    init: true 
+    # Ensure memory limits are reasonable for Chrome
+    shm_size: '1gb' 
+    cap_add:
+      - SYS_ADMIN # Required for Chrome sandbox/puppeteer in rare cases, but usually fine without in modern kernels with unprivileged sandbox.

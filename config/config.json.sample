@@ -1,0 +1,12 @@
+{
+    "checkIntervalSeconds": 300,
+    "resendApiKey": "re_your_api_key_here",
+    "emailFrom": "onboarding@resend.dev",
+    "emailTo": "your.email@example.com",
+    "items": [
+        {
+            "url": "https://www.amazon.com/dp/B08H93ZRK9",
+            "name": "PS5 Digital Edition (Example)"
+        }
+    ]
+}
