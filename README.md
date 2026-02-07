@@ -2,17 +2,6 @@
 
 A lightweight tracking service that monitors Amazon product availability and sends email notifications when items come back in stock.
 
-## Features
-
-- **Automated Checking**: Monitor items at configurable intervals.
-- **Stock Detection**: Checks if the "Add to Cart" or "Buy Now" button is available.
-- **Email Notifications**: Uses Resend to send instant alerts.
-- **Stealth Mode**: Uses Puppeteer with stealth plugins to avoid detection.
-- **Dockerized**: Easy deployment with Docker Compose.
-
-## Configuration
-
-Edit `config/config.json` to add your items and email settings:
 
 ```json
 {
@@ -28,8 +17,6 @@ Edit `config/config.json` to add your items and email settings:
   ]
 }
 ```
-
-**Note:** Ensure your `emailFrom` domain is verified in Resend, or use the test domain `onboarding@resend.dev` sending ONLY to your own email address if testing.
 
 ## Running with Docker
 
