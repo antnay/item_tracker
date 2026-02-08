@@ -29,7 +29,8 @@ RUN npm run build
 RUN npm prune --production
 
 # Switch back to pptruser for security (and consistency with base image)
-USER pptruser
+# We run as root to ensure we can write to mounted volumes easily without permission issues
+# USER pptruser
 
 # Command to run the application
 CMD ["node", "dist/index.js"]
