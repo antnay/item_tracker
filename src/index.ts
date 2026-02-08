@@ -4,7 +4,6 @@ import path from 'path';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { Resend } from 'resend';
-import sqlite3 from 'sqlite3';
 
 // Add stealth plugin to puppeteer
 puppeteer.use(StealthPlugin());
@@ -149,33 +148,17 @@ async function main() {
     const config = loadConfig();
     const checkInterval = (config.checkIntervalSeconds || 300) * 1000;
 
-    // Initialize SQLite Database
-    const DB_PATH = path.resolve(__dirname, '../config/database.sqlite');
-    const db = new sqlite3.Database(DB_PATH);
+    // Keep track of previous statuses to avoid spamming
+    const STATUS_FILE = path.resolve(__dirname, '../config/status.json');
+    let itemStatuses: Record<string, 'in_stock' | 'out_of_stock' | 'error'> = {};
 
-    // Promisify DB access for convenience
-    const run = (sql: string, params: any[] = []) => new Promise<void>((resolve, reject) => {
-        db.run(sql, params, (err: Error | null) => err ? reject(err) : resolve());
-    });
-
-    const get = (sql: string, params: any[] = []) => new Promise<any>((resolve, reject) => {
-        db.get(sql, params, (err: Error | null, row: any) => err ? reject(err) : resolve(row));
-    });
-
-    try {
-        await run(`
-        CREATE TABLE IF NOT EXISTS item_status (
-          url TEXT PRIMARY KEY,
-          status TEXT,
-          name TEXT,
-          last_checked DATETIME DEFAULT CURRENT_TIMESTAMP,
-          last_changed DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-        console.log('Database initialized.');
-    } catch (e) {
-        console.error('Failed to initialize database:', e);
-        process.exit(1);
+    if (fs.existsSync(STATUS_FILE)) {
+        try {
+            itemStatuses = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8'));
+            console.log('Loaded previous statuses:', itemStatuses);
+        } catch (e) {
+            console.error('Failed to load status file:', e);
+        }
     }
 
     console.log('Starting Amazon Item Tracker...');
@@ -193,63 +176,28 @@ async function main() {
 
         const browser = await puppeteer.launch({
             headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu'
-            ]
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
         for (const item of currentConfig.items) {
             const status = await checkItemStock(browser, item);
             console.log(`Status for ${item.name}: ${status}`);
 
-            // Get previous status from DB
-            let prevStatusEntry;
-            try {
-                prevStatusEntry = await get('SELECT status FROM item_status WHERE url = ?', [item.url]);
-            } catch (e) {
-                console.error(`Error reading status for ${item.name}:`, e);
-            }
-
-            const prevStatus = prevStatusEntry ? prevStatusEntry.status : null;
+            const prevStatus = itemStatuses[item.url];
 
             if (status === 'in_stock' && prevStatus !== 'in_stock') {
                 console.log(`!!! ${item.name} IS IN STOCK !!! Sending notification...`);
                 await sendNotification(currentConfig, item);
-
-                // Update DB
-                await run(`
-                  INSERT INTO item_status (url, name, status, last_checked, last_changed)
-                  VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                  ON CONFLICT(url) DO UPDATE SET
-                    status = excluded.status,
-                    name = excluded.name,
-                    last_checked = CURRENT_TIMESTAMP,
-                    last_changed = CURRENT_TIMESTAMP
-                `, [item.url, item.name, status]);
-
+                // Update status immediately and save
+                itemStatuses[item.url] = status;
+                fs.writeFileSync(STATUS_FILE, JSON.stringify(itemStatuses, null, 2));
             } else if (status !== 'error') {
-                // Update last_checked regardless, but only update last_changed if status changed
-                if (prevStatus !== status) {
-                    await run(`
-                      INSERT INTO item_status (url, name, status, last_checked, last_changed)
-                      VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                      ON CONFLICT(url) DO UPDATE SET
-                        status = excluded.status,
-                        name = excluded.name,
-                        last_checked = CURRENT_TIMESTAMP,
-                        last_changed = CURRENT_TIMESTAMP
-                    `, [item.url, item.name, status]);
-                } else {
-                    // Just update last_checked
-                    await run(`
-                      INSERT INTO item_status (url, name, status, last_checked)
-                      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                      ON CONFLICT(url) DO UPDATE SET
-                        last_checked = CURRENT_TIMESTAMP
-                    `, [item.url, item.name, status]);
+                // Only update status if it's a valid check (not error)
+                // If it was in_stock and now out_of_stock, update it.
+                // If it was out_of_stock and still out_of_stock, update it (no change).
+                if (itemStatuses[item.url] !== status) {
+                    itemStatuses[item.url] = status;
+                    fs.writeFileSync(STATUS_FILE, JSON.stringify(itemStatuses, null, 2));
                 }
             } else {
                 console.log(`Skipping status update for ${item.name} due to error.`);
